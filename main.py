@@ -40,7 +40,6 @@ def trello():
         api_secret=os.getenv("TRELLOSECRET"),
         token=os.getenv("TRELLOTOKEN")
     )
-    print(client_trello.api_key)
     music_board = client_trello.search("Music to listen to")[0]
     categories = music_board.list_lists()
     for category in categories:
