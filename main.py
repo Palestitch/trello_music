@@ -1,9 +1,10 @@
-'''
+"""
 Author: Fabio von Schelling Goldman
 TODO:
 - Figure out how to make more adaptable and versatile
---> Read in different types of files
-'''
+--> Read in different types of files (txt)
+- Probably best to make the whole thing with classes and hide the internals
+"""
 
 from trello import TrelloClient, os
 import spotipy
@@ -23,6 +24,7 @@ def setup_spotify(username):
     else:
         print("Can't get token for", username)
         exit(-1)
+
 
 def new_list(username, sp, new_name):
     existing_lists = sp.user_playlists(username)['items']
@@ -54,12 +56,17 @@ def spotify(category):
     print("Finished processing a list")
 
 
-def trello():
+def setup_trello_client():
     client_trello = TrelloClient(
         api_key=os.getenv("TRELLOKEY"),
         api_secret=os.getenv("TRELLOSECRET"),
         token=os.getenv("TRELLOTOKEN")
     )
+    return client_trello
+
+
+def trello():
+    client_trello = setup_trello_client()
     music_board = client_trello.search("Music to listen to")[0]
     categories = music_board.list_lists()
     for category in categories:
