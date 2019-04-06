@@ -26,33 +26,35 @@ def setup_spotify(username):
         exit(-1)
 
 
-def new_list(username, sp, new_name):
+def find_list(username, sp, new_name):
     existing_lists = sp.user_playlists(username)['items']
     for name in existing_lists:
         if new_name == name['name']:
-            print("Playlist with this name exists already, please choose a new name.")
-            return False
-    return True
+            print("Playlist with this name exists already, appending new songs instead.")
+            return name['id']
+    playlist_to_add = sp.user_playlist_create(username, new_name)
+    return playlist_to_add['id']
 
 
 def add_all_cards(username, sp, new_playlist, category):
     for card in category.list_cards():
         result = sp.search(card.name, type="artist")
-        if len(result['artists']['items']) == 0:
+        if len(result['artists']) == 0 or len(result['artists']['items']) == 0:
+            # We couldn't find the artist or any songs connected to the artist
             continue
         tops = sp.artist_top_tracks(result['artists']['items'][0]['id'])
+        # We assume the first artist found is the one we are looking for
         for track in tops['tracks']:
-            sp.user_playlist_add_tracks(username, new_playlist['id'], [track['uri']])
-            print(track['name'])
+            if track not in sp.user_playlist_tracks(username, new_playlist, limit=700):
+                sp.user_playlist_add_tracks(username, new_playlist, [track['uri']])
+                print(track['name'])
 
 
 def spotify(category):
     username = os.getenv("SPOTIFYUSERNAME")
     sp = setup_spotify(username)
-    if not new_list(username, sp, category.name):
-        return
-    new_playlist = sp.user_playlist_create(username, category.name)
-    add_all_cards(username, sp, new_playlist, category)
+    playlist_to_add = find_list(username, sp, category.name)
+    add_all_cards(username, sp, playlist_to_add, category)
     print("Finished processing a list")
 
 
