@@ -2,83 +2,120 @@
 Author: Fabio von Schelling Goldman
 TODO:
 - Figure out how to make more adaptable and versatile
---> Read in different types of files (txt)
-- Probably best to make the whole thing with classes and hide the internals
+--> Read in different types of files than just txt
+- Possibly make a spotify super class that handles adding playlists etc.
+- Fix The new line thing with browser
+- Custom Button for browsing
+- Hide .* files when browsing
+- ReadMe for github
+- Check for first time usage for credentials
+- validate credentials in gui.py
 """
 
-from trello import TrelloClient, os
-import spotipy
-import spotipy.util as util
-from dotenv import load_dotenv
+import gui as gui_class
+import importGui
+import spotify as sp
 
 
-def setup_spotify(username):
-    scope = "playlist-modify-public"
-    token = util.prompt_for_user_token(username, scope, client_id=os.getenv("SPOTIFYID"),
-                                       client_secret=os.getenv("SPOTIFYSECRET"),
-                                       redirect_uri="http://localhost:8888/callback/")
-    if token:
-        sp = spotipy.Spotify(auth=token)
-        sp.trace = False
-        return sp
-    else:
-        print("Can't get token for", username)
-        exit(-1)
+class MainRunner:
 
+    def __init__(self):
+        self.gui = gui_class.Gui()
+        self.import_gui = importGui.ImportGui()
+        self.spotify_import = sp.SpotifyImportPlaylist()
 
-def find_list(username, sp, new_name):
-    existing_lists = sp.user_playlists(username)['items']
-    for name in existing_lists:
-        if new_name == name['name']:
-            print("Playlist with this name exists already, appending new songs instead.")
-            return name['id']
-    playlist_to_add = sp.user_playlist_create(username, new_name)
-    return playlist_to_add['id']
+    def progress_bar_handler(self):
+        done = False
+        # Creates the window
+        self.import_gui.progress_bar(None)
+        while not done:
+            perc_cov = self.spotify_import.percentage_imported
+            if perc_cov is None:
+                continue
+            elif perc_cov == 100:
+                done = True
+            else:
+                self.import_gui.progress_bar(perc_cov)
 
+    def artist_lookup_thread(self):
+        self.spotify_import.main("trello")
+        success = self.spotify_import.return_boolean
+        error_cause = self.spotify_import.return_error
+        if not success:
+            mode, name = self.import_gui.duplicated_list(error_cause)
+            if mode == "append":
+                self.spotify_import.main("trello", duplicate_handling="append")
+            elif mode == "rename":
+                self.spotify_import.main("trello", new_playlist_name=name[0])
+        return
 
-def add_all_cards(username, sp, new_playlist, category):
-    for card in category.list_cards():
-        result = sp.search(card.name, type="artist")
-        if len(result['artists']) == 0 or len(result['artists']['items']) == 0:
-            # We couldn't find the artist or any songs connected to the artist
-            continue
-        tops = sp.artist_top_tracks(result['artists']['items'][0]['id'])
-        # We assume the first artist found is the one we are looking for
-        for track in tops['tracks']:
-            if track not in sp.user_playlist_tracks(username, new_playlist, limit=700):
-                sp.user_playlist_add_tracks(username, new_playlist, [track['uri']])
-                print(track['name'])
+    def check_credentials(self):
+        self.spotify_import.load_credentials()
+        credentials_accepted = self.spotify_import.setup_spotify()
+        while not credentials_accepted:
+            self.gui.alert("The provided credentials for Spotify were not valid. Please login again.")
+            button_pressed, creds = self.gui.login_window()
+            if button_pressed and button_pressed != "Cancel":
+                # This won't work yet, but need to read how to do this
+                self.spotify_import.save_credentials("SPOTIFYUSERNAME", creds[0])
+                self.spotify_import.save_credentials("SPOTIFYPASSWORD", creds[1])
+                credentials_accepted = self.spotify_import.setup_spotify()
+            else:
+                exit(0)
+        # Creds for Spotify were valid and the user is now logged in
+        return
 
+    def import_playlist(self):
+        last_button_pressed, current_values = self.import_gui.choose_import_mode()
+        if not last_button_pressed:
+            exit(0)
+        elif last_button_pressed == "Submit":
+            if current_values["trello"]:
+                self.spotify_import.main("trello")
+                success = self.spotify_import.return_boolean
+                error_cause = self.spotify_import.return_error
+                if not success:
+                    mode, name = self.import_gui.duplicated_list(error_cause)
+                    if mode == "append":
+                        self.spotify_import.main("trello", duplicate_handling="append")
+                    elif mode == "rename":
+                        self.spotify_import.main("trello", new_playlist_name=name[0])
+                    else:
+                        return
+            else:
+                if current_values["name"] != "Type a name for the playlist or one will be generated.":
+                    playlist_name = current_values["name"]
+                else:
+                    playlist_name = ""
+                self.spotify_import.main("txt", current_values["path"], playlist_name)
+                success = self.spotify_import.return_boolean
+                error_cause = self.spotify_import.return_error
+                if not success:
+                    mode, name = self.import_gui.duplicated_list(error_cause)
+                    if mode == "append":
+                        self.spotify_import.main("txt", current_values["path"], duplicate_handling="append")
+                    elif mode == "rename":
+                        self.spotify_import.main("txt", current_values["path"], new_playlist_name=name[0])
+                    else:
+                        return
+            self.gui.alert("Successfully created the playlist.")
+        elif last_button_pressed == "Cancel":
+            return
+        else:
+            self.gui.alert("When importing the playlist something went wrong that shouldn't go wrong. Sorry.")
 
-def spotify(category):
-    username = os.getenv("SPOTIFYUSERNAME")
-    sp = setup_spotify(username)
-    playlist_to_add = find_list(username, sp, category.name)
-    add_all_cards(username, sp, playlist_to_add, category)
-    print("Finished processing a list")
-
-
-def setup_trello_client():
-    client_trello = TrelloClient(
-        api_key=os.getenv("TRELLOKEY"),
-        api_secret=os.getenv("TRELLOSECRET"),
-        token=os.getenv("TRELLOTOKEN")
-    )
-    return client_trello
-
-
-def trello():
-    client_trello = setup_trello_client()
-    music_board = client_trello.search("Music to listen to")[0]
-    categories = music_board.list_lists()
-    for category in categories:
-        spotify(category)
-
-
-def main():
-    load_dotenv()
-    trello()
+    def main(self):
+        self.check_credentials()
+        last_button_pressed, current_values = self.gui.main_menu(self.spotify_import.spotify_username)
+        if last_button_pressed and last_button_pressed != "Quit":
+            if last_button_pressed == "Create playlist":
+                self.import_playlist()
+            elif last_button_pressed == "Change User":
+                self.gui.alert("Not implemented yet.")
+        else:
+            exit(0)
 
 
 if __name__ == "__main__":
-    main()
+    m = MainRunner()
+    m.main()
