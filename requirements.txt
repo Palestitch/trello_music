@@ -1,0 +1,4 @@
+PySimpleGUI~=4.1.0
+spotipy~=2.4.4
+PyYAML~=5.1.1
+py-trello~=0.15.0
